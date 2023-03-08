@@ -1,0 +1,253 @@
+### R code from vignette source 'monocle.Rnw'
+
+###################################################
+### code chunk number 1: monocle.Rnw:25-27
+###################################################
+library(knitr)
+opts_chunk$set(eval=TRUE, warning=FALSE, message=FALSE, tidy=TRUE)
+
+
+###################################################
+### code chunk number 2: init_monocle
+###################################################
+library(monocle)
+
+
+###################################################
+### code chunk number 3: set_up_cds (eval = FALSE)
+###################################################
+## #not run
+## fpkm_matrix <- read.table("fpkm_matrix.txt")
+## sample_sheet <- read.delim("cell_sample_sheet.txt")
+## gene_ann <- read.delim("gene_annotations.txt")
+## pd <- new("AnnotatedDataFrame", data = sample_sheet)
+## fd <- new("AnnotatedDataFrame", data = gene_ann)
+## HSMM <- new("CellDataSet", exprs = as.matrix(fpkm_matrix), phenoData = pd, featureData = fd)
+
+
+###################################################
+### code chunk number 4: detect_genes
+###################################################
+HSMM <- detectGenes(HSMM, min_expr = 0.1)
+print(head(fData(HSMM)))
+expressed_genes <- row.names(subset(fData(HSMM), num_cells_expressed >= 50))
+
+
+###################################################
+### code chunk number 5: show_pData
+###################################################
+print(head(pData(HSMM)))
+
+
+###################################################
+### code chunk number 6: select_cells (eval = FALSE)
+###################################################
+## valid_cells <- row.names(subset(pData(HSMM), Cells.in.Well == 1 & Control == FALSE & Clump == FALSE & Debris == FALSE & Mapped.Fragments > 1000000))
+## HSMM <- HSMM[,valid_cells]
+
+
+###################################################
+### code chunk number 7: lognormal_plot
+###################################################
+# Log-transform each value in the expression matrix.
+L <- log(exprs(HSMM[expressed_genes,]))
+
+# Standardize each gene, so that they are all on the same scale,
+# Then melt the data with plyr so we can plot it easily"
+melted_dens_df <- melt(t(scale(t(L))))
+
+# Plot the distribution of the standardized gene expression values.
+qplot(value, geom="density", data=melted_dens_df) +  stat_function(fun = dnorm, size=0.5, color='red') + 
+xlab("Standardized log(FPKM)") +
+ylab("Density")
+
+
+###################################################
+### code chunk number 8: select_genes
+###################################################
+marker_genes <- row.names(subset(fData(HSMM), 
+                                 gene_short_name %in% c("MEF2C", "MEF2D", "MYF5", "ANPEP", "PDGFRA",
+                                                        "MYOG", "TPM1", "TPM2", "MYH2", "MYH3", "NCAM1", "TNNT1", "TNNT2", "TNNC1",
+                                                        "CDK1", "CDK2", "CCNB1", "CCNB2", "CCND1", "CCNA1", "ID1")))
+
+
+###################################################
+### code chunk number 9: basic_diff
+###################################################
+diff_test_res <- differentialGeneTest(HSMM[marker_genes,], 
+                                      fullModelFormulaStr="expression~Media")
+
+# Select genes that are significant at an FDR < 10%
+sig_genes <- subset(diff_test_res, qval < 0.1)
+
+# Attach the HUGO symbols and other featureData for these genes
+sig_genes <- merge(fData(HSMM), sig_genes, by="row.names")
+sig_genes[,c("gene_short_name", "pval", "qval")]
+
+
+###################################################
+### code chunk number 10: plot_myog_jitter
+###################################################
+MYOG_ID1 <- HSMM[row.names(subset(fData(HSMM), 
+                                 gene_short_name %in% c("MYOG", "ID1"))),]
+plot_genes_jitter(MYOG_ID1, grouping="Media", ncol=2)
+
+
+###################################################
+### code chunk number 11: ordering_not_run (eval = FALSE)
+###################################################
+## #not run
+## diff_test_res <- differentialGeneTest(HSMM[expressed_genes,], fullModelFormulaStr="expression~Media")
+## ordering_genes <- row.names (subset(diff_test_res, qval < 0.01))
+
+
+###################################################
+### code chunk number 12: select_ordering_cells
+###################################################
+ordering_genes <- row.names (subset(diff_test_res, qval < 0.1))
+
+#Only use genes are detectably expressed in a sufficient number of cells
+ordering_genes <- intersect(ordering_genes, expressed_genes)
+
+
+###################################################
+### code chunk number 13: set_ordering_filter
+###################################################
+HSMM <- setOrderingFilter(HSMM, ordering_genes)
+
+
+###################################################
+### code chunk number 14: reduce_dimension
+###################################################
+HSMM <- reduceDimension(HSMM, use_irlba=F)
+
+
+###################################################
+### code chunk number 15: order_cells
+###################################################
+HSMM <- orderCells(HSMM, num_paths=2, reverse=F)
+
+
+###################################################
+### code chunk number 16: plot_ordering_mst
+###################################################
+plot_spanning_tree(HSMM)
+
+
+###################################################
+### code chunk number 17: plot_markers
+###################################################
+HSMM_filtered <- HSMM[expressed_genes, pData(HSMM)$State != 3]
+
+my_genes <- row.names(subset(fData(HSMM_filtered), 
+                             gene_short_name %in% c("CDK1", "MEF2C", "MYH3"))) 
+
+cds_subset <- HSMM_filtered[my_genes,]
+plot_genes_in_pseudotime(cds_subset, color_by="Time")
+
+
+###################################################
+### code chunk number 18: setup_test_genes
+###################################################
+to_be_tested <- row.names(subset(fData(HSMM), 
+                             gene_short_name %in% c("TBP", "MYH3", "NCAM1", "PDGFRA", "ANPEP"))) 
+cds_subset <- HSMM[to_be_tested, pData(HSMM)$State != 1]
+
+
+###################################################
+### code chunk number 19: all_in_one_test
+###################################################
+diff_test_res <- differentialGeneTest(cds_subset, fullModelFormulaStr="expression~State")
+diff_test_res <- merge(fData(HSMM), diff_test_res, by="row.names")
+diff_test_res[,c("gene_short_name", "pval", "qval")]
+
+
+###################################################
+### code chunk number 20: jitter_plot_diff_res
+###################################################
+plot_genes_jitter(cds_subset, nrow=1, ncol=NULL, plot_trend=T)
+
+
+###################################################
+### code chunk number 21: piecewise_test (eval = FALSE)
+###################################################
+## full_model_fits <- fitModel(cds_subset,  modelFormulaStr="expression~State")
+## reduced_model_fits <- fitModel(cds_subset, modelFormulaStr="expression~1")
+## diff_test_res <- compareModels(full_model_fits, reduced_model_fits)
+## diff_test_res
+
+
+###################################################
+### code chunk number 22: setup_test_genes_pt
+###################################################
+to_be_tested <- row.names(subset(fData(HSMM), 
+                             gene_short_name %in% c("MYH3", "MEF2C", "CCNB2", "TNNT1"))) 
+cds_subset <- HSMM[to_be_tested, pData(HSMM)$State != 3]
+
+
+###################################################
+### code chunk number 23: piecewise_test_pt
+###################################################
+diff_test_res <- differentialGeneTest(cds_subset,  fullModelFormulaStr="expression~VGAM::bs(Pseudotime)")
+
+
+###################################################
+### code chunk number 24: all_in_one_test_pt
+###################################################
+diff_test_res <- merge(fData(HSMM), diff_test_res, by="row.names")
+diff_test_res[,c("gene_short_name", "pval", "qval")]
+
+
+###################################################
+### code chunk number 25: plot_diff_res_pt
+###################################################
+plot_genes_in_pseudotime(cds_subset, color_by="Time")
+
+
+###################################################
+### code chunk number 26: plot_diff_res_multi
+###################################################
+to_be_tested <- row.names(subset(fData(HSMM), 
+                             gene_short_name %in% c("MT2A", "REXO2", "HDAC4"))) 
+cds_subset <- HSMM[to_be_tested, pData(HSMM)$Media == "DM" & pData(HSMM)$State != 1]
+
+diff_test_res <- differentialGeneTest(cds_subset,  
+                                      fullModelFormulaStr="expression~State * Time", 
+                                      reducedModelFormulaStr="expression~Time")
+diff_test_res <- merge(fData(cds_subset), diff_test_res, by="row.names")
+diff_test_res[,c("gene_short_name", "pval", "qval")]
+plot_genes_jitter(cds_subset, grouping="Time", color_by="State", plot_trend=T) + facet_wrap( ~ gene_label, scales="free_y")
+
+
+###################################################
+### code chunk number 27: fit_full_model_for_cluster
+###################################################
+full_model_fits <- fitModel(HSMM_filtered[sample(nrow(fData(HSMM_filtered)), 100),],  modelFormulaStr="expression~VGAM::bs(Pseudotime)")
+
+
+###################################################
+### code chunk number 28: extract_response_curve
+###################################################
+expression_curve_matrix <- responseMatrix(full_model_fits)
+dim(expression_curve_matrix)
+
+
+###################################################
+### code chunk number 29: cluster_and_plot
+###################################################
+clusters <- clusterGenes(expression_curve_matrix, k=4)
+plot_clusters(HSMM_filtered[ordering_genes,], clusters)
+
+
+###################################################
+### code chunk number 30: citation
+###################################################
+citation("monocle")
+
+
+###################################################
+### code chunk number 31: sessi
+###################################################
+sessionInfo()
+
+
