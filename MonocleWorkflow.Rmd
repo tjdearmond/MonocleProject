@@ -1,0 +1,24 @@
+---
+title: "Workflow"
+author: "Turner DeArmond"
+date: "2023-03-08"
+output: html_document
+---
+
+1) HSMM <- detect genes (HSMM, min_expr = ?)
+?: Label whether genes are expressed or not in each cell with this minimum
+
+2) expressed_genes <- row.names(subset(fData(HSMM), num... >= ?))
+?: List genes label expressed in more than ? cells based on metric in #1
+
+3) (Only in monocle.R) marker_genes
+List of marker genes decided by authors
+
+4) diff_test_res <- diffGeneTest(HSMM[marker/expressed genes])
+Measure significance of gene expresssion changes across phenotype groups (ex.: media)
+
+5) ordering_genes <- row.names(subset(diff_test_res.qual < ?))
+Pick genes going to be used to order cells in pseudotime, genes that cshange in expression across phenodata
+
+6) ordering_genes <- intersect(ordering_genes, expressed_genes)
+Further narrow down ordering genes list
